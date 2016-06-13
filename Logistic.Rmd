@@ -1,0 +1,81 @@
+---
+title: "Logistic"
+output: html_document
+---
+
+
+```{r}
+library(ROCR)
+library(aod)
+library(ggplot2)
+library(glmnet)
+library("knitr")
+library("car")
+mydata <- read.csv("http://www.ats.ucla.edu/stat/data/binary.csv")
+head(mydata)
+str(mydata)
+mydata$rank <- as.factor(mydata$rank)
+str(mydata)
+summary(mydata)
+sapply(mydata[,1:3], sd)
+apply(is.na(mydata), 2, sum)
+xtabs(~ admit + rank, data = mydata)
+myfit.1 <- glm(admit ~., data = mydata, family = "binomial")
+summary(myfit.1)
+plot(myfit.1)
+diag <- influence.measures(myfit.1)[[1]]
+outlierTest(myfit.1)
+influencePlot(myfit.1)
+
+
+
+mydata.fix <- mydata[-c(198,342),]
+myfit.2 <- glm(admit ~., data = mydata.fix, family = "binomial")
+summary(myfit.2)
+plot(myfit.2)
+
+
+
+
+
+myfit.3 <- glm(admit ~ 1, data = mydata.fix, family = "binomial")
+myfit.AIC <- step(myfit.3, scope = list(upper = myfit.2, lower = ~1), 
+                  direction = "forward")
+myfit.BIC <- step(myfit.3, scope = list(upper = myfit.2, lower = ~1),
+                  k = log(398), direction = "forward")
+mydata.pred <- predict(myfit.BIC, mydata.fix[,-1], type = 'response')
+mydata.pred <- ifelse(mydata.pred > 0.5, 1, 0)
+ROC.pred <- prediction(mydata.pred, mydata.fix[,1])
+ROC.perf <- performance(ROC.pred, "tpr", "fpr")
+plot(ROC.perf)
+wald.test(myfit.BIC$coef, Sigma = vcov(myfit.BIC), Terms = 4:6)
+
+mydata.dm <- model.matrix(~., data = mydata)[,-1]
+head(mydata.dm)
+myfit.lasso <- cv.glmnet(mydata.dm[,-1], mydata.dm[,1], alpha = 1,
+                         family = 'binomial')
+plot(myfit.lasso)
+lasso.coef <- predict(myfit.lasso, s = myfit.lasso$lambda.min, 
+                      type = "coefficients")
+mydata.pred <- predict(myfit.lasso, s = myfit.lasso$lambda.min, mydata.dm[,-1],
+                       type = 'response')
+mydata.pred <- ifelse(mydata.pred > 0.5, 1, 0)
+ROC.pred <- prediction(mydata.pred, mydata.dm[,1])
+ROC.perf <- performance(ROC.pred, "tpr", "fpr")
+plot(ROC.perf)
+
+exp(cbind(Odds.Ratio = myfit.AIC$coef,confint(myfit.AIC)))
+newdata2 <- with(mydata,data.frame(gre = rep(seq(from = 200, to = 800, length.out = 100), 4),
+                            gpa = mean(gpa), rank = factor(rep(1:4, each = 100))))
+newdata3 <- cbind(newdata2, predict(myfit.AIC, newdata = newdata2, type="link", se=TRUE))
+newdata3 <- within(newdata3, {
+  PredictedProb <- plogis(fit)
+  LL <- plogis(fit - (1.96 * se.fit))
+  UL <- plogis(fit + (1.96 * se.fit))
+})
+ggplot(newdata3, aes(x = gre, y = PredictedProb)) +
+  geom_ribbon(aes(ymin = LL, ymax = UL, fill = rank), alpha = .2) +
+  geom_line(aes(colour = rank), size=1)
+
+```
+
